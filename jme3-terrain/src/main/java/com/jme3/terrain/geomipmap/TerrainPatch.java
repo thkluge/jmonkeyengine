@@ -50,6 +50,7 @@ import com.jme3.scene.mesh.IndexBuffer;
 import com.jme3.terrain.geomipmap.TerrainQuad.LocationHeight;
 import com.jme3.terrain.geomipmap.lodcalc.util.EntropyComputeUtil;
 import com.jme3.util.BufferUtils;
+import com.jme3.util.TempVars;
 import com.jme3.util.clone.Cloner;
 import java.io.IOException;
 import java.nio.Buffer;
@@ -555,39 +556,58 @@ public class TerrainPatch extends Geometry {
             Vector3f tangent,
             Vector3f binormal)
     {
-        Vector3f scale = getWorldScale();
+        TempVars vars = TempVars.get();
+        try {
+            Vector3f scale = getWorldScale();
+            
+            Vector3f n1 = vars.vect1.set(0, 0, 0);
+            Vector3f n2 = vars.vect2.set(0, 0, 0);
+            Vector3f n3 = vars.vect3.set(0, 0, 0);
+            Vector3f n4 = vars.vect4.set(0, 0, 0);
+            
+            Vector3f scaledRoot = vars.vect5.set(rootPoint).multLocal(scale);
+            Vector3f scaledFirst = vars.vect6;
+            Vector3f scaledSecond = vars.vect7;
+            Vector3f mathTemp = vars.vect8;
+    
+            if (topPoint != null && leftPoint != null) {
+                scaledFirst.set(topPoint).multLocal(scale);
+                scaledSecond.set(leftPoint).multLocal(scale);
+                calculateNormal(scaledFirst, scaledRoot, scaledSecond, n1, mathTemp);
+            }
+            
+            if (leftPoint != null && bottomPoint != null) {
+                scaledFirst.set(leftPoint).multLocal(scale);
+                scaledSecond.set(bottomPoint).multLocal(scale);
+                calculateNormal(scaledFirst, scaledRoot, scaledSecond, n2, mathTemp);
+            }
+            
+            if (bottomPoint != null && rightPoint != null) {
+                scaledFirst.set(bottomPoint).multLocal(scale);
+                scaledSecond.set(rightPoint).multLocal(scale);
+                calculateNormal(scaledFirst, scaledRoot, scaledSecond, n3, mathTemp);
+            }
+            
+            if (rightPoint != null && topPoint != null) {
+                scaledFirst.set(rightPoint).multLocal(scale);
+                scaledSecond.set(topPoint).multLocal(scale);
+                calculateNormal(scaledFirst, scaledRoot, scaledSecond, n4, mathTemp);
+            }
 
-        Vector3f n1 = new Vector3f(0,0,0);
-        if (topPoint != null && leftPoint != null) {
-            n1.set(calculateNormal(topPoint.mult(scale), rootPoint.mult(scale), leftPoint.mult(scale)));
-        }
-        Vector3f n2 = new Vector3f(0,0,0);
-        if (leftPoint != null && bottomPoint != null) {
-            n2.set(calculateNormal(leftPoint.mult(scale), rootPoint.mult(scale), bottomPoint.mult(scale)));
-        }
-        Vector3f n3 = new Vector3f(0,0,0);
-        if (rightPoint != null && bottomPoint != null) {
-            n3.set(calculateNormal(bottomPoint.mult(scale), rootPoint.mult(scale), rightPoint.mult(scale)));
-        }
-        Vector3f n4 = new Vector3f(0,0,0);
-        if (rightPoint != null && topPoint != null) {
-            n4.set(calculateNormal(rightPoint.mult(scale), rootPoint.mult(scale), topPoint.mult(scale)));
-        }
+            // Chain local additions to avoid allocating intermediate Vector3f objects
+            normal.set(n1).addLocal(n2).addLocal(n3).addLocal(n4).normalizeLocal();
 
-        //if (bottomPoint != null && rightPoint != null && rootTex != null && rightTex != null && bottomTex != null)
-        //    LODGeomap.calculateTangent(new Vector3f[]{rootPoint.mult(scale),rightPoint.mult(scale),bottomPoint.mult(scale)}, new Vector2f[]{rootTex,rightTex,bottomTex}, tangent, binormal);
-
-        normal.set(n1.add(n2).add(n3).add(n4).normalize());
-
-        tangent.set(normal.cross(new Vector3f(0,0,1)).normalize());
-        binormal.set(new Vector3f(1,0,0).cross(normal).normalize());
+            // Use JME's built-in static unit vectors for the cross products
+            tangent.set(normal).crossLocal(Vector3f.UNIT_Z).normalizeLocal();
+            binormal.set(Vector3f.UNIT_X).crossLocal(normal).normalizeLocal();
+        } finally {
+            vars.release(); // Crucial: release back to the thread-local pool
+        }
     }
-
-    private Vector3f calculateNormal(Vector3f firstPoint, Vector3f rootPoint, Vector3f secondPoint) {
-        Vector3f normal = new Vector3f();
-        normal.set(firstPoint).subtractLocal(rootPoint)
-                  .crossLocal(secondPoint.subtract(rootPoint)).normalizeLocal();
-        return normal;
+    
+    private void calculateNormal(Vector3f firstPoint, Vector3f rootPoint, Vector3f secondPoint, Vector3f store, Vector3f temp) {
+        temp.set(secondPoint).subtractLocal(rootPoint);
+        store.set(firstPoint).subtractLocal(rootPoint).crossLocal(temp).normalizeLocal();
     }
 
     protected Vector3f getMeshNormal(int x, int z) {
